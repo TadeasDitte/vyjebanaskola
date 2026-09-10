@@ -19,7 +19,7 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  # Build the dev image and run the PHP checks (Pint, PHPStan, PHPUnit)
+  # Build the image (through the frontend/asset stage) and run the PHP checks
   # inside it, so CI exercises the same image the Dockerfile produces.
   # Frontend lint / type checks live in the native `tests` workflow.
   test:
@@ -33,15 +33,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      - name: Build dev image
+      - name: Build image (frontend stage - includes built Vite assets)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          target: dev
+          target: frontend
           load: true
           tags: vyjebanaskola:test
-          cache-from: type=gha,scope=dev
-          cache-to: type=gha,scope=dev,mode=max
+          cache-from: type=gha,scope=build
+          cache-to: type=gha,scope=build,mode=max
 
       - name: Pint, PHPStan, PHPUnit
         run: |
@@ -97,8 +97,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=gha,scope=prod
-            type=gha,scope=dev
-          cache-to: type=gha,scope=prod,mode=max
+          cache-from: type=gha,scope=build
+          cache-to: type=gha,scope=build,mode=max
           provenance: false
