@@ -1,0 +1,92 @@
+name: vyjebanaskola
+
+# Shared config for every container that runs the Laravel app image.
+x-app: &app
+  build:
+    context: .
+    target: dev
+    args:
+      UID: ${UID:-1000}
+      GID: ${GID:-1000}
+  # No env_file here on purpose: Laravel reads the bind-mounted .env itself.
+  # Injecting .env as real container env vars would override phpunit.xml's
+  # <env> block (APP_ENV=testing etc.) and break the test suite.
+  volumes:
+    - ./:/var/www/html
+    - vendor:/var/www/html/vendor
+    - node_modules:/var/www/html/node_modules
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  # PHP-FPM - serves the application to nginx.
+  app:
+    <<: *app
+    container_name: vyjebanaskola-app
+    restart: unless-stopped
+    environment:
+      RUN_MIGRATIONS: "true"
+
+  # nginx - public HTTP entrypoint on http://localhost:8000
+  web:
+    image: nginx:1.27-alpine
+    container_name: vyjebanaskola-web
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+  # Vite dev server - HMR on http://localhost:5173
+  vite:
+    <<: *app
+    container_name: vyjebanaskola-vite
+    restart: unless-stopped
+    command: npm run dev
+    ports:
+      - "5173:5173"
+    depends_on:
+      - app
+
+  # Queue worker (QUEUE_CONNECTION=database)
+  queue:
+    <<: *app
+    container_name: vyjebanaskola-queue
+    restart: unless-stopped
+    command: php artisan queue:work --tries=3 --timeout=90 --sleep=1
+
+  # Scheduler (runs due tasks every minute)
+  scheduler:
+    <<: *app
+    container_name: vyjebanaskola-scheduler
+    restart: unless-stopped
+    command: php artisan schedule:work
+
+  # PostgreSQL
+  db:
+    image: postgres:17
+    container_name: vyjebanaskola-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-vyjebanaskola}
+      POSTGRES_USER: ${DB_USERNAME:-vyjebanaskola}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    ports:
+      # host 5433 -> container 5432 (so host-side tools still work)
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-vyjebanaskola} -d ${DB_DATABASE:-vyjebanaskola}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db-data:
+  vendor:
+  node_modules:
