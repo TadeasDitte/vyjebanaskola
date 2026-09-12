@@ -82,7 +82,7 @@ export default defineConfig({
             'resources/views/mail/*',
             // Infra files - not the Vue/TS formatter's business.
             'Dockerfile',
-            'docker-compose.yml',
+            'docker-compose*.yml',
             'docker/**',
         ],
         sortTailwindcss: {

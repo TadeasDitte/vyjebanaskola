@@ -16,13 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/zz-app.ini
 
-# Align the container user with the host user so bind-mounted files stay
-# writable from both sides (override with build args if your host uid != 1000).
-ARG UID=1000
-ARG GID=1000
-RUN groupmod -o -g "${GID}" www-data \
-    && usermod  -o -u "${UID}" -g "${GID}" www-data
-
 WORKDIR /var/www/html
 # www-data's home is /var/www; npm/composer write caches there.
 RUN chown -R www-data:www-data /var/www
@@ -35,10 +28,11 @@ ENTRYPOINT ["entrypoint"]
 CMD ["php-fpm"]
 
 ############################################################################
-# dev - base + Node 22 toolchain, all deps installed (source is bind-mounted #
-#       by docker-compose; named volumes are seeded from this image)         #
+# build - base + Node 22 toolchain, all deps installed. Used by CI to run    #
+#         the PHP checks and as the stage the frontend build starts from.    #
+#         (Local development uses Laravel Sail, not this image.)             #
 ############################################################################
-FROM base AS dev
+FROM base AS build
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
@@ -59,7 +53,7 @@ RUN composer dump-autoload --optimize
 # frontend - build production assets (PHP is present so the Wayfinder /      #
 #            Inertia Vite plugins that shell out to `php artisan` work)      #
 ############################################################################
-FROM dev AS frontend
+FROM build AS frontend
 RUN npm run build
 
 ############################################################################
@@ -67,6 +61,11 @@ RUN npm run build
 ############################################################################
 FROM base AS production
 ENV APP_ENV=production
+
+# Mount point for the shared public/ volume (see docker-compose.prod.yml).
+# Must exist in the image owned by www-data so the named volume inherits
+# writable ownership on first use.
+RUN install -d -o www-data -g www-data /srv/public
 
 USER www-data
 
