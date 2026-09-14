@@ -1,31 +1,36 @@
 # syntax=docker/dockerfile:1
 
 ############################################################################
-# base - PHP 8.4 FPM runtime with extensions + Composer                      #
+# base - FrankenPHP (Caddy + PHP 8.4) runtime with extensions + Composer     #
 ############################################################################
-FROM php:8.4-fpm-bookworm AS base
-
-COPY --from=mlocati/php-extension-installer:2 /usr/bin/install-php-extensions /usr/local/bin/
+FROM dunglas/frankenphp:1-php8.4-bookworm AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git unzip curl ca-certificates libpq5 postgresql-client \
+        git unzip curl ca-certificates postgresql-client \
     && install-php-extensions \
-        pdo_pgsql pgsql bcmath pcntl intl zip opcache gd exif \
+        pdo_pgsql pgsql bcmath pcntl intl zip gd exif \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/zz-app.ini
 
+# Plain HTTP on :80 - TLS is a fronting proxy's job. Overridable at runtime
+# (e.g. SERVER_NAME=example.com for Caddy's automatic HTTPS).
+ENV SERVER_NAME=:80
+
 WORKDIR /var/www/html
-# www-data's home is /var/www; npm/composer write caches there.
-RUN chown -R www-data:www-data /var/www
+# www-data's home is /var/www; npm/composer write caches there. Caddy keeps
+# its state in /data and /config (XDG_* in the base image); the setcap lets
+# the non-root process bind :80.
+RUN chown -R www-data:www-data /var/www /data /config \
+    && setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/frankenphp
 ENV HOME=/var/www
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
 
 ENTRYPOINT ["entrypoint"]
-CMD ["php-fpm"]
+CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--adapter", "caddyfile"]
 
 ############################################################################
 # build - base + Node 22 toolchain, all deps installed. Used by CI to run    #
@@ -57,15 +62,10 @@ FROM build AS frontend
 RUN npm run build
 
 ############################################################################
-# production - slim PHP-FPM image, no Node, prebuilt assets baked in         #
+# production - slim FrankenPHP image, no Node, prebuilt assets baked in      #
 ############################################################################
 FROM base AS production
 ENV APP_ENV=production
-
-# Mount point for the shared public/ volume (see docker-compose.prod.yml).
-# Must exist in the image owned by www-data so the named volume inherits
-# writable ownership on first use.
-RUN install -d -o www-data -g www-data /srv/public
 
 USER www-data
 

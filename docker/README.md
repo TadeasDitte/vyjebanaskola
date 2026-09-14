@@ -1,9 +1,9 @@
 # Docker setup
 
 Development runs on [Laravel Sail](https://laravel.com/docs/sail)
-(`docker-compose.yml`); production runs prebuilt images from GHCR
-(`docker-compose.prod.yml`). The root `Dockerfile` is only used by CI and
-to build the production image.
+(`compose.yml`); production runs prebuilt
+[FrankenPHP](https://frankenphp.dev) images from GHCR (`compose.prod.yml`).
+The root `Dockerfile` is only used by CI and to build the production image.
 
 ## Development (Sail)
 
@@ -64,27 +64,30 @@ everything directly.
 `ghcr.io/tadeasditte/vyjebanaskola` on every push to `main` (`latest` +
 `sha-*` tags) and on `v*` tags (semver tags).
 
-On the server you need exactly two files: `docker-compose.prod.yml` and a
+On the server you need exactly two files: `compose.prod.yml` and a
 `.env` (start from `.env.production.example`; APP_KEY and DB_PASSWORD are
 required).
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f compose.prod.yml pull
+docker compose -f compose.prod.yml up -d
 ```
 
-The stack: nginx (`web`, published on `APP_PORT`, default 80) → PHP-FPM
-(`app`) plus `queue`, `scheduler` and `db` (PostgreSQL 17, not exposed).
-On boot the `app` container syncs the baked `public/` (with built Vite
-assets) into a shared volume for nginx, waits for Postgres, runs
+The stack: FrankenPHP (`app`, Caddy + PHP in one process, published on
+`APP_PORT`, default 80) plus `queue`, `scheduler` and `db` (PostgreSQL 17,
+not exposed). On boot the `app` container waits for Postgres, runs
 `php artisan migrate --force`, and `php artisan optimize`s. Uploads and
 logs persist in the `storage` volume; the database in `db-data`.
+
+By default the app speaks plain HTTP on :80 (TLS is a fronting proxy's
+job). To have Caddy terminate TLS itself, set `SERVER_NAME` to the domain
+in `.env` and publish `443:443` and `443:443/udp` on the `app` service.
 
 To roll out a new version:
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d   # recreates changed containers
+docker compose -f compose.prod.yml pull
+docker compose -f compose.prod.yml up -d   # recreates changed containers
 ```
 
 Pin a specific release by setting `APP_IMAGE` in `.env`

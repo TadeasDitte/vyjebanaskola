@@ -5,7 +5,7 @@ cd /var/www/html
 
 # --- Dev/CI scaffolding ------------------------------------------------------
 # Skipped in production, where APP_KEY arrives as a real env var (env_file in
-# docker-compose.prod.yml) and the baked .env-less image must stay untouched.
+# compose.prod.yml) and the baked .env-less image must stay untouched.
 if [ -z "${APP_KEY:-}" ]; then
     if [ ! -f vendor/autoload.php ]; then
         echo "[entrypoint] vendor/ missing - running composer install..."
@@ -21,15 +21,6 @@ if [ -z "${APP_KEY:-}" ]; then
         echo "[entrypoint] generating APP_KEY"
         php artisan key:generate --force
     fi
-fi
-
-# --- Export public/ into the volume nginx serves (prod) ------------------------
-# Runs before the DB wait so nginx has assets as soon as possible.
-if [ -n "${PUBLIC_EXPORT_DIR:-}" ]; then
-    php artisan storage:link --force 2>/dev/null || true
-    echo "[entrypoint] syncing public/ to ${PUBLIC_EXPORT_DIR}"
-    find "${PUBLIC_EXPORT_DIR}" -mindepth 1 -delete
-    cp -a public/. "${PUBLIC_EXPORT_DIR}/"
 fi
 
 # --- Wait for the database (connection details come from env / .env) -----------
